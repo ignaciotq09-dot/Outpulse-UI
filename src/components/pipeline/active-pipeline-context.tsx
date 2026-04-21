@@ -101,7 +101,6 @@ export function ActivePipelineProvider({ children }: { children: ReactNode }) {
     } catch {
       sessionStorage.removeItem(SESSION_KEY);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cleanup on unmount

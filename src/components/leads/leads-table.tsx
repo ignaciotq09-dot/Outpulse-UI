@@ -19,6 +19,32 @@ import type { LeadRead } from "@/lib/types";
 type SortKey = "fit_score" | "company_title" | "rank";
 type SortDir = "asc" | "desc";
 
+// Defined at module scope (React 19 forbids creating components during render).
+function SortButton({
+  column,
+  currentSort,
+  onSort,
+  children,
+}: {
+  column: SortKey;
+  currentSort: SortKey;
+  onSort: (column: SortKey) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      className="gap-1 -ml-2 text-foreground"
+      onClick={() => onSort(column)}
+      data-active={currentSort === column}
+    >
+      {children}
+      <ArrowUpDown className="size-3" />
+    </Button>
+  );
+}
+
 export function LeadsTable({
   leads,
   onSelect,
@@ -49,18 +75,6 @@ export function LeadsTable({
     }
   }
 
-  const SortButton = ({ column, children }: { column: SortKey; children: React.ReactNode }) => (
-    <Button
-      variant="ghost"
-      size="xs"
-      className="gap-1 -ml-2 text-foreground"
-      onClick={() => toggleSort(column)}
-    >
-      {children}
-      <ArrowUpDown className="size-3" />
-    </Button>
-  );
-
   return (
     <div className="ring-1 ring-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-sm rounded-xl overflow-hidden">
       <Table>
@@ -68,10 +82,14 @@ export function LeadsTable({
           <TableRow className="border-white/[0.06] hover:bg-transparent">
             <TableHead className="w-12">#</TableHead>
             <TableHead>
-              <SortButton column="company_title">Company</SortButton>
+              <SortButton column="company_title" currentSort={sortKey} onSort={toggleSort}>
+                Company
+              </SortButton>
             </TableHead>
             <TableHead>
-              <SortButton column="fit_score">Score</SortButton>
+              <SortButton column="fit_score" currentSort={sortKey} onSort={toggleSort}>
+                Score
+              </SortButton>
             </TableHead>
             <TableHead>Tier</TableHead>
             <TableHead className="hidden md:table-cell">Signals</TableHead>
