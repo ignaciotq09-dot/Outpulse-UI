@@ -153,6 +153,12 @@ export function ActivePipelineProvider({ children }: { children: ReactNode }) {
         setElapsed((Date.now() - meta.startedAt) / 1000);
       }, 100);
 
+      // NOTE: Faux step progression. The backend's POST /pipeline returns the
+      // full result in one shot — there is no streaming/SSE/polling endpoint
+      // we can subscribe to for intermediate stage updates. To give the user
+      // visual feedback during the 60-180s wait, we advance the step indicator
+      // on a fixed 15s cadence (ingest -> icp -> discover -> score -> rank).
+      // The real outcome lands when the request resolves and overrides this.
       stepTimersRef.current = [];
       for (let i = 1; i < PIPELINE_STEPS.length; i++) {
         stepTimersRef.current.push(

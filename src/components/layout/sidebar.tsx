@@ -3,26 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Home,
-  Rocket,
-  Users,
-  History,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-  Zap,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-
-const NAV_ITEMS = [
-  { href: "/", label: "Dashboard", icon: Home },
-  { href: "/onboarding", label: "New Pipeline", icon: Rocket },
-  { href: "/leads", label: "Leads", icon: Users },
-  { href: "/runs", label: "Runs", icon: History },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+import { NAV_ITEMS } from "@/lib/constants";
 
 export function Sidebar() {
   const pathname = usePathname();

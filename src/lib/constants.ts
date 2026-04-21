@@ -1,3 +1,28 @@
+// ── Navigation ──
+
+import {
+  Home,
+  Rocket,
+  Users,
+  History,
+  Settings,
+  type LucideIcon,
+} from "lucide-react";
+
+export interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  { href: "/", label: "Dashboard", icon: Home },
+  { href: "/onboarding", label: "New Pipeline", icon: Rocket },
+  { href: "/leads", label: "Leads", icon: Users },
+  { href: "/runs", label: "Runs", icon: History },
+  { href: "/settings", label: "Settings", icon: Settings },
+];
+
 // ── Score color helpers ──
 
 export function getScoreColor(score: number): string {

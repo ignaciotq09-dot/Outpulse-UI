@@ -46,18 +46,20 @@ async function request<T>(
   log("api", `${method} ${shortUrl}`, "Sending request...");
 
   try {
-    const controller = new AbortController();
     const timeoutMs = options?.timeout ?? 30_000;
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // AbortSignal.timeout() handles the deadline; combine with the caller's
+    // signal (if any) using AbortSignal.any() so either one triggers an abort.
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = options?.signal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal;
 
     const res = await fetch(url, {
       method,
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
-      signal: options?.signal ?? controller.signal,
+      signal,
     });
-
-    clearTimeout(timer);
     const duration = Math.round(performance.now() - start);
 
     if (!res.ok) {
