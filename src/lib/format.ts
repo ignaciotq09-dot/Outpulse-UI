@@ -1,34 +1,45 @@
-import { formatDistanceToNow } from "date-fns";
+import { TIER_CONFIG } from "@/lib/constants";
 
-export function relativeTime(iso: string): string {
-  return formatDistanceToNow(new Date(iso), { addSuffix: true });
+export function formatTier(tier: string): string {
+  return TIER_CONFIG[tier]?.label ?? tier;
 }
 
-export function shortRelativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (days > 0) return `${days}d ago`;
-  if (hours > 0) return `${hours}h ago`;
-  if (minutes > 0) return `${minutes}m ago`;
-  return "just now";
+export function formatDate(dateStr: string): string {
+  try {
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return dateStr;
+  }
 }
 
-export function formatNumber(n: number): string {
-  return new Intl.NumberFormat("en-US").format(n);
+export function formatDateTime(dateStr: string): string {
+  try {
+    return new Date(dateStr).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return dateStr;
+  }
 }
 
-export function formatPercent(value: number, total: number): string {
-  if (total === 0) return "0%";
-  return `${((value / total) * 100).toFixed(1)}%`;
+export function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}m ${s}s`;
 }
 
-export function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
+export function formatDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
