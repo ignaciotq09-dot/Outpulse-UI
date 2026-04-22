@@ -1,36 +1,111 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Outpulse UI
 
-## Getting Started
+Premium dark-themed dashboard frontend for the Outpulse B2B lead generation platform. Connects to the Outpulse REST API to ingest company URLs, run the discovery + scoring pipeline, and display ranked leads with full evidence and contact information.
 
-First, run the development server:
+**Live**: https://outpulse-ui.vercel.app
+**Backend**: https://outpulse-production.up.railway.app
+
+## Stack
+
+- **Next.js 16** (App Router, TypeScript, Turbopack)
+- **Tailwind CSS v4** + **shadcn/ui** (Base UI primitives)
+- **TanStack Query v5** (server state, caching)
+- **Sonner** (toasts), **Lucide React** (icons)
+
+## Pages
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Dashboard home — stat cards, recent runs, quick actions |
+| `/onboarding` | URL input → animated pipeline progress → ICP review |
+| `/leads?icp_id={id}` | Sortable leads table with detail drawer |
+| `/runs` | Pipeline run history |
+| `/settings` | Account / Billing / API Keys placeholder |
+
+## Local Development
 
 ```bash
+npm install
+cp .env.example .env.local   # then fill in OUTPULSE_API_KEY
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Var | Required | Description |
+|-----|----------|-------------|
+| `OUTPULSE_API_KEY` | yes | Backend API key. Injected server-side by the proxy route — never sent to the browser. |
+| `OUTPULSE_BACKEND_URL` | no | Override the upstream backend URL. Defaults to the Railway prod URL. |
 
-## Learn More
+## Verification
 
-To learn more about Next.js, take a look at the following resources:
+The project ships with a verification script that exercises the proxy security behaviour end-to-end (path allowlist, missing-key handling, error sanitization).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+# Type-check + lint + production build
+npx tsc --noEmit
+npm run lint
+npx next build
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Live proxy smoke tests (against http://localhost:3000 by default)
+npm run smoke
 
-## Deploy on Vercel
+# Or against a deployed environment (skips the S2 restart test):
+npm run smoke -- https://outpulse-ui.vercel.app
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The smoke script covers:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **S1** — Path allowlist rejects unknown routes (`/api/admin`, `/api/secret`, `/api/admin/users`) with HTTP 404
+- **S1** — Allowlisted routes (`/api/health`, `/api/runs`) return HTTP 200
+- **S2** — Missing `OUTPULSE_API_KEY` returns HTTP 500 with "Server misconfiguration" (localhost only — restarts the dev server without the key, then restores it)
+- **S3** — Upstream errors are sanitized to `{detail: ...}` only — no Python tracebacks, file paths, or internal hints leak to the client
+
+A clean run shows `PASS 11 checks ✓`.
+
+## Deployment
+
+Currently deployed on Vercel:
+
+```bash
+vercel --prod
+```
+
+Set `OUTPULSE_API_KEY` (and optionally `OUTPULSE_BACKEND_URL`) in the Vercel project's environment variables before deploying.
+
+The `/api/[...path]` route handler proxies long-running pipeline requests with `maxDuration = 300`. On Vercel Hobby this is capped at 60 seconds — the pipeline endpoint can take 60-180s, so Hobby plans may time out. Upgrade to Pro for longer execution.
+
+## Project Structure
+
+```
+src/
+  app/
+    layout.tsx
+    page.tsx                 # Dashboard (Suspense wrapper)
+    dashboard-content.tsx
+    onboarding/page.tsx
+    leads/{page,leads-content}.tsx
+    runs/{page,runs-content}.tsx
+    settings/page.tsx
+    api/[...path]/route.ts   # Allowlisted proxy with key injection + error sanitization
+  lib/
+    api-client.ts            # fetch wrapper with AbortSignal.any() + activity logging
+    api/                     # per-endpoint modules
+    types/index.ts
+    constants.ts             # NAV_ITEMS, tier colors, pipeline steps
+    format.ts
+  hooks/                     # use-pipeline, use-leads, use-runs, use-animated-value
+  components/
+    providers.tsx
+    ui/                      # shadcn + custom (animated-number, circular-progress, stat-card, gradient-pill)
+    layout/                  # sidebar, mobile-nav, app-shell
+    activity-log/
+    pipeline/                # active-pipeline-context (run lock, sessionStorage recovery)
+    onboarding/
+    leads/
+    runs/
+scripts/
+  smoke-test.sh              # live proxy verification
+```
