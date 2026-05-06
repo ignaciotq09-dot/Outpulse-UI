@@ -21,7 +21,7 @@ import { PIPELINE_STEPS } from "@/lib/constants";
 
 const SESSION_KEY = "outpulse:active-pipeline";
 const POLL_INTERVAL_MS = 2_500;
-const MAX_RUN_MS = 30 * 60 * 1000;
+const MAX_RUN_MS = 70 * 60 * 1000;
 const POLL_FAIL_LIMIT = 3;
 
 interface ActiveRunMeta {
@@ -100,7 +100,7 @@ async function pollUntilTerminal(
   while (!signal.aborted) {
     if (Date.now() - startedAt > MAX_RUN_MS) {
       throw new Error(
-        "Pipeline polling exceeded the 30 minute client ceiling.",
+        "Pipeline polling exceeded the 70 minute client ceiling.",
       );
     }
     let status: PipelineJobStatusResponse;
