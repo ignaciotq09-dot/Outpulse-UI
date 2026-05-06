@@ -150,18 +150,22 @@ export function ActivePipelineProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const scheduleFauxStepProgression = useCallback(
-    (controller: AbortController) => {
+    (controller: AbortController, startedAt: number) => {
       // Backend's pipeline status only reports {pending,running,completed,failed}
       // — no per-stage substatus. To give the user feedback during the 60–180s
       // run, advance the step indicator on a fixed cadence starting from
       // SEARCH_START_STEP (discover). Real terminal state (completed/failed)
       // overrides this when polling resolves.
       stepTimersRef.current = [];
+      const ageMs = Date.now() - startedAt;
       for (let i = SEARCH_START_STEP + 1; i < PIPELINE_STEPS.length; i++) {
+        const targetAgeMs = (i - SEARCH_START_STEP) * FAUX_STEP_INTERVAL_MS;
+        const delayMs = targetAgeMs - ageMs;
+        if (delayMs <= 0) continue;
         stepTimersRef.current.push(
           setTimeout(() => {
             if (!controller.signal.aborted) setStepIndex(i);
-          }, (i - SEARCH_START_STEP) * FAUX_STEP_INTERVAL_MS),
+          }, delayMs),
         );
       }
     },
@@ -303,7 +307,7 @@ export function ActivePipelineProvider({ children }: { children: ReactNode }) {
       setElapsed((Date.now() - meta.startedAt) / 1000);
     }, 250);
 
-    scheduleFauxStepProgression(controller);
+    scheduleFauxStepProgression(controller, meta.startedAt);
     void runJob(meta, controller);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -341,7 +345,7 @@ export function ActivePipelineProvider({ children }: { children: ReactNode }) {
         setElapsed((Date.now() - meta.startedAt) / 1000);
       }, 250);
 
-      scheduleFauxStepProgression(controller);
+      scheduleFauxStepProgression(controller, meta.startedAt);
       void runJob(meta, controller);
 
       return true;
