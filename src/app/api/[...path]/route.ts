@@ -13,6 +13,7 @@ export const maxDuration = 300;
 // Anything else returns 404 to prevent probing internal/admin endpoints.
 const ALLOWED_PREFIXES = new Set([
   "pipeline",
+  "ingest",
   "leads",
   "runs",
   "icp",

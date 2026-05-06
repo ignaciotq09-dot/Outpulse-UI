@@ -24,17 +24,21 @@ export interface ICPBlueprint {
   exclusions: string[];
   confidence: number;
   supporting_evidence: string[];
+  source_type?: string;
+  is_b2b_seller?: boolean | null;
+  suitability_reason?: string;
+  suitability_confidence?: number;
 }
 
 export interface IngestMetadata {
   anthropic_model: string;
   anthropic_tool_name: string;
-  exa_request_id: string;
-  exa_cost_usd: number;
-  exa_source_status: string;
-  icp_blueprint_id: string;
-  customer_id: string;
-  created_at: string;
+  exa_request_id: string | null;
+  exa_cost_usd: number | null;
+  exa_source_status: string | null;
+  icp_blueprint_id: string | null;
+  customer_id: string | null;
+  created_at: string | null;
   persisted: boolean;
 }
 
@@ -86,12 +90,47 @@ export interface PipelineResponse {
   customer_id: string;
   webset_id: string;
   query_text: string;
+  requested_count: number;
+  requested_field_count: number;
   discovery_count: number;
   candidates: NormalizedCandidate[];
   scored_leads: LeadScoreResult[];
   ranked_leads: RankedLead[];
   overall_notes: string;
   status: string;
+}
+
+export interface PipelineAcceptedResponse {
+  job_id: string;
+  candidate_count: number;
+  field_count: number;
+}
+
+export type PipelineJobStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed";
+
+export interface PipelineJobStatusResponse {
+  job_id: string;
+  status: PipelineJobStatus;
+  source_url: string;
+  run_id: string | null;
+  customer_id: string | null;
+  icp_blueprint_id: string | null;
+  candidate_count: number;
+  field_count: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PipelineRunResult {
+  job_id: string;
+  run_id: string;
+  customer_id: string;
+  icp_blueprint_id: string;
 }
 
 export interface LeadRead {
@@ -151,6 +190,7 @@ export interface RunRead {
   webset_id: string | null;
   query_text: string | null;
   requested_count: number | null;
+  requested_field_count: number | null;
   returned_count: number | null;
   analyzed_count: number | null;
   completed_at: string | null;

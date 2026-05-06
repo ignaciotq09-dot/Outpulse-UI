@@ -1,15 +1,15 @@
 "use client";
 
 import { useActivePipeline } from "@/components/pipeline/active-pipeline-context";
-import type { PipelineResponse, PipelineStep } from "@/lib/types";
+import type { PipelineRunResult, PipelineStep } from "@/lib/types";
 
 export interface UsePipelineReturn {
   steps: PipelineStep[];
-  result: PipelineResponse | null;
+  result: PipelineRunResult | null;
   error: string | null;
   isRunning: boolean;
   elapsed: number;
-  start: (url: string, candidateCount?: number) => void;
+  start: (url: string, candidateCount?: number, fieldCount?: number) => void;
   reset: () => void;
 }
 
