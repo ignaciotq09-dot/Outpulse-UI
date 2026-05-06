@@ -26,7 +26,14 @@ const POLL_FAIL_LIMIT = 3;
 // The user already saw the ICP via /ingest in the review step before kicking
 // off /pipeline/run, so skip the ingest+icp stages in the visual progression.
 // Backend still re-runs them internally; this is just an honesty fix on the UI.
-const SEARCH_START_STEP = 2; // index into PIPELINE_STEPS — "discover"
+// Derived from PIPELINE_STEPS so reordering the steps array doesn't silently
+// desync the visual progression.
+const SEARCH_START_STEP = PIPELINE_STEPS.findIndex((s) => s.id === "discover");
+if (SEARCH_START_STEP < 0) {
+  throw new Error(
+    'PIPELINE_STEPS must include a step with id "discover" — search progression depends on it.',
+  );
+}
 const FAUX_STEP_INTERVAL_MS = 15_000;
 
 interface ActiveRunMeta {
