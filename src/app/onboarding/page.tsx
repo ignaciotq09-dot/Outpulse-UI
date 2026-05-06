@@ -42,6 +42,17 @@ export default function OnboardingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning]);
 
+  // On fresh /onboarding mount, drop any stale terminal state from a prior
+  // visit so navigating here from Dashboard / Sidebar / "New Pipeline" always
+  // shows the URL form, not the previous run's "Pipeline Complete" screen.
+  // Skipped if a run is currently in flight.
+  useEffect(() => {
+    if (!isRunning && (result || error)) {
+      reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-route to leads only when this page has observed an active search.
   // The completed result lives in the global pipeline context; without this
   // guard, returning to /onboarding after viewing leads would immediately
