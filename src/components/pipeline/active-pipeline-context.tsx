@@ -10,30 +10,48 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
-import { runPipeline } from "@/lib/api/pipeline";
+import { getPipelineStatus, startPipelineRun } from "@/lib/api/pipeline";
 import type {
-  PipelineResponse,
+  PipelineJobStatusResponse,
+  PipelineRunResult,
   PipelineStep,
   PipelineStepStatus,
 } from "@/lib/types";
 import { PIPELINE_STEPS } from "@/lib/constants";
 
 const SESSION_KEY = "outpulse:active-pipeline";
+const POLL_INTERVAL_MS = 2_500;
+const MAX_RUN_MS = 70 * 60 * 1000;
+const POLL_FAIL_LIMIT = 3;
+// The user already saw the ICP via /ingest in the review step before kicking
+// off /pipeline/run, so skip the ingest+icp stages in the visual progression.
+// Backend still re-runs them internally; this is just an honesty fix on the UI.
+// Derived from PIPELINE_STEPS so reordering the steps array doesn't silently
+// desync the visual progression.
+const SEARCH_START_STEP = PIPELINE_STEPS.findIndex((s) => s.id === "discover");
+if (SEARCH_START_STEP < 0) {
+  throw new Error(
+    'PIPELINE_STEPS must include a step with id "discover" — search progression depends on it.',
+  );
+}
+const FAUX_STEP_INTERVAL_MS = 15_000;
 
 interface ActiveRunMeta {
   url: string;
   candidateCount?: number;
-  startedAt: number; // epoch ms
+  fieldCount?: number;
+  startedAt: number;
+  jobId?: string;
 }
 
 interface ActivePipelineContextValue {
   steps: PipelineStep[];
-  result: PipelineResponse | null;
+  result: PipelineRunResult | null;
   error: string | null;
   isRunning: boolean;
-  elapsed: number; // seconds
+  elapsed: number;
   activeRun: ActiveRunMeta | null;
-  startRun: (url: string, candidateCount?: number) => boolean;
+  startRun: (url: string, candidateCount?: number, fieldCount?: number) => boolean;
   reset: () => void;
 }
 
@@ -50,93 +68,275 @@ function makeSteps(activeIndex: number, error: boolean): PipelineStep[] {
   });
 }
 
+function persistMeta(meta: ActiveRunMeta) {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(meta));
+  } catch {
+    // sessionStorage unavailable (private mode) — non-fatal
+  }
+}
+
+function clearMeta() {
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const t = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function pollUntilTerminal(
+  jobId: string,
+  startedAt: number,
+  signal: AbortSignal,
+  onStatus: (s: PipelineJobStatusResponse) => void,
+): Promise<PipelineJobStatusResponse> {
+  let consecutiveFailures = 0;
+  while (!signal.aborted) {
+    if (Date.now() - startedAt > MAX_RUN_MS) {
+      throw new Error(
+        "Pipeline polling exceeded the 70 minute client ceiling.",
+      );
+    }
+    let status: PipelineJobStatusResponse;
+    try {
+      status = await getPipelineStatus(jobId, signal);
+      consecutiveFailures = 0;
+    } catch (err) {
+      if (signal.aborted) throw err;
+      consecutiveFailures++;
+      if (consecutiveFailures >= POLL_FAIL_LIMIT) throw err;
+      await abortableSleep(POLL_INTERVAL_MS, signal);
+      continue;
+    }
+    onStatus(status);
+    if (status.status === "completed" || status.status === "failed") {
+      return status;
+    }
+    await abortableSleep(POLL_INTERVAL_MS, signal);
+  }
+  throw new DOMException("Aborted", "AbortError");
+}
+
 export function ActivePipelineProvider({ children }: { children: ReactNode }) {
   const [stepIndex, setStepIndex] = useState(-1);
-  const [result, setResult] = useState<PipelineResponse | null>(null);
+  const [result, setResult] = useState<PipelineRunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [activeRun, setActiveRun] = useState<ActiveRunMeta | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const stepTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // On mount, recover any "running" marker from sessionStorage. We can't
-  // recover the in-flight fetch, but we can show the user that a run was
-  // started and surface a soft notice telling them to check /runs.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = sessionStorage.getItem(SESSION_KEY);
-      if (!raw) return;
-      const meta = JSON.parse(raw) as ActiveRunMeta;
-      // Only resurrect if it was started in the last 5 minutes (otherwise
-      // the request has long since either succeeded or died).
-      const ageSec = (Date.now() - meta.startedAt) / 1000;
-      if (ageSec > 300) {
-        sessionStorage.removeItem(SESSION_KEY);
-        return;
-      }
-      setActiveRun(meta);
-      setIsRunning(true);
-      setStepIndex(Math.min(Math.floor(ageSec / 15), PIPELINE_STEPS.length - 1));
-      setElapsed(ageSec);
-
-      timerRef.current = setInterval(() => {
-        const e = (Date.now() - meta.startedAt) / 1000;
-        setElapsed(e);
-        if (e > 300) {
-          // Give up after 5 minutes
-          clearInterval(timerRef.current!);
-          timerRef.current = undefined;
-          sessionStorage.removeItem(SESSION_KEY);
-          setIsRunning(false);
-          setActiveRun(null);
-          setError(
-            "Pipeline took too long to respond. Check the Runs page for status.",
-          );
-        }
-      }, 1000);
-    } catch {
-      sessionStorage.removeItem(SESSION_KEY);
-    }
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-      if (timerRef.current) clearInterval(timerRef.current);
-      stepTimersRef.current.forEach(clearTimeout);
-    };
-  }, []);
-
-  const clearTimers = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = undefined;
+  const clearTimers = useCallback(() => {
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = undefined;
     }
     stepTimersRef.current.forEach(clearTimeout);
     stepTimersRef.current = [];
-  };
+  }, []);
+
+  const scheduleFauxStepProgression = useCallback(
+    (controller: AbortController, startedAt: number) => {
+      // Backend's pipeline status only reports {pending,running,completed,failed}
+      // — no per-stage substatus. To give the user feedback during the 60–180s
+      // run, advance the step indicator on a fixed cadence starting from
+      // SEARCH_START_STEP (discover). Real terminal state (completed/failed)
+      // overrides this when polling resolves.
+      stepTimersRef.current = [];
+      const ageMs = Date.now() - startedAt;
+      for (let i = SEARCH_START_STEP + 1; i < PIPELINE_STEPS.length; i++) {
+        const targetAgeMs = (i - SEARCH_START_STEP) * FAUX_STEP_INTERVAL_MS;
+        const delayMs = targetAgeMs - ageMs;
+        if (delayMs <= 0) continue;
+        stepTimersRef.current.push(
+          setTimeout(() => {
+            if (!controller.signal.aborted) setStepIndex(i);
+          }, delayMs),
+        );
+      }
+    },
+    [],
+  );
+
+  const runJob = useCallback(
+    async (meta: ActiveRunMeta, controller: AbortController) => {
+      try {
+        let jobId = meta.jobId;
+        if (!jobId) {
+          const accepted = await startPipelineRun(meta.url, {
+            candidateCount: meta.candidateCount,
+            fieldCount: meta.fieldCount,
+            signal: controller.signal,
+          });
+          jobId = accepted.job_id;
+          const updated: ActiveRunMeta = { ...meta, jobId };
+          persistMeta(updated);
+          setActiveRun(updated);
+        }
+
+        const terminal = await pollUntilTerminal(
+          jobId,
+          meta.startedAt,
+          controller.signal,
+          () => {
+            // Hook for future per-status UX (e.g. distinguish pending vs running)
+          },
+        );
+
+        if (controller.signal.aborted) return;
+        clearTimers();
+        clearMeta();
+        setElapsed((Date.now() - meta.startedAt) / 1000);
+
+        if (terminal.status === "failed") {
+          setStepIndex((idx) => Math.max(idx, 0));
+          const msg =
+            terminal.error_message ?? "Pipeline failed without an error message.";
+          setError(msg);
+          setIsRunning(false);
+          setActiveRun(null);
+          toast.error(`Pipeline failed: ${msg}`, { duration: 7000 });
+          return;
+        }
+
+        // status === "completed"
+        if (
+          !terminal.icp_blueprint_id ||
+          !terminal.run_id ||
+          !terminal.customer_id
+        ) {
+          const msg =
+            "Pipeline completed but the backend did not return an ICP id.";
+          setError(msg);
+          setIsRunning(false);
+          setActiveRun(null);
+          toast.error(msg, { duration: 7000 });
+          return;
+        }
+
+        setStepIndex(PIPELINE_STEPS.length);
+        setResult({
+          job_id: terminal.job_id,
+          run_id: terminal.run_id,
+          customer_id: terminal.customer_id,
+          icp_blueprint_id: terminal.icp_blueprint_id,
+        });
+        setIsRunning(false);
+        setActiveRun(null);
+        toast.success("Pipeline complete — taking you to leads", {
+          duration: 4000,
+        });
+      } catch (err) {
+        clearTimers();
+        clearMeta();
+        if (controller.signal.aborted) return;
+        const msg = err instanceof Error ? err.message : "Pipeline failed";
+        setError(msg);
+        setIsRunning(false);
+        setActiveRun(null);
+        setElapsed((Date.now() - meta.startedAt) / 1000);
+        toast.error(`Pipeline failed: ${msg}`, { duration: 7000 });
+      }
+    },
+    [clearTimers],
+  );
+
+  // On mount, recover any in-flight job from sessionStorage and resume polling.
+  // Unlike the old sync flow we CAN truly resume — the job lives server-side
+  // and we only need its job_id to keep polling.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem(SESSION_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+
+    let meta: ActiveRunMeta;
+    try {
+      meta = JSON.parse(raw) as ActiveRunMeta;
+    } catch {
+      clearMeta();
+      return;
+    }
+
+    if (!meta.jobId) {
+      // Started but never got a job_id back — can't resume.
+      clearMeta();
+      return;
+    }
+
+    const ageMs = Date.now() - meta.startedAt;
+    if (ageMs > MAX_RUN_MS) {
+      clearMeta();
+      return;
+    }
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setActiveRun(meta);
+    setIsRunning(true);
+    setError(null);
+    setResult(null);
+    setStepIndex(
+      Math.min(
+        SEARCH_START_STEP + Math.floor(ageMs / FAUX_STEP_INTERVAL_MS),
+        PIPELINE_STEPS.length - 1,
+      ),
+    );
+    setElapsed(ageMs / 1000);
+
+    elapsedTimerRef.current = setInterval(() => {
+      setElapsed((Date.now() - meta.startedAt) / 1000);
+    }, 250);
+
+    scheduleFauxStepProgression(controller, meta.startedAt);
+    void runJob(meta, controller);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      clearTimers();
+    };
+  }, [clearTimers]);
 
   const startRun = useCallback(
-    (url: string, candidateCount?: number): boolean => {
-      // Lock — don't start a new run if one is in flight.
+    (url: string, candidateCount?: number, fieldCount?: number): boolean => {
       if (isRunning) return false;
 
       const meta: ActiveRunMeta = {
         url,
         candidateCount,
+        fieldCount,
         startedAt: Date.now(),
       };
-
-      try {
-        sessionStorage.setItem(SESSION_KEY, JSON.stringify(meta));
-      } catch {
-        // sessionStorage may be unavailable (private mode, etc) — non-fatal.
-      }
+      persistMeta(meta);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -145,73 +345,32 @@ export function ActivePipelineProvider({ children }: { children: ReactNode }) {
       setResult(null);
       setError(null);
       setIsRunning(true);
-      setStepIndex(0);
+      setStepIndex(SEARCH_START_STEP);
       setElapsed(0);
 
-      timerRef.current = setInterval(() => {
+      elapsedTimerRef.current = setInterval(() => {
         setElapsed((Date.now() - meta.startedAt) / 1000);
-      }, 100);
+      }, 250);
 
-      // NOTE: Faux step progression. The backend's POST /pipeline returns the
-      // full result in one shot — there is no streaming/SSE/polling endpoint
-      // we can subscribe to for intermediate stage updates. To give the user
-      // visual feedback during the 60-180s wait, we advance the step indicator
-      // on a fixed 15s cadence (ingest -> icp -> discover -> score -> rank).
-      // The real outcome lands when the request resolves and overrides this.
-      stepTimersRef.current = [];
-      for (let i = 1; i < PIPELINE_STEPS.length; i++) {
-        stepTimersRef.current.push(
-          setTimeout(() => {
-            if (!controller.signal.aborted) {
-              setStepIndex(i);
-            }
-          }, i * 15_000),
-        );
-      }
-
-      runPipeline(url, { candidateCount, signal: controller.signal })
-        .then((data) => {
-          clearTimers();
-          sessionStorage.removeItem(SESSION_KEY);
-          setStepIndex(PIPELINE_STEPS.length);
-          setResult(data);
-          setIsRunning(false);
-          setElapsed((Date.now() - meta.startedAt) / 1000);
-          const leadCount = data.ranked_leads?.length ?? 0;
-          toast.success(
-            `Pipeline complete — ${leadCount} ${
-              leadCount === 1 ? "lead" : "leads"
-            } found`,
-            { duration: 5000 },
-          );
-        })
-        .catch((err: unknown) => {
-          clearTimers();
-          sessionStorage.removeItem(SESSION_KEY);
-          if (controller.signal.aborted) return;
-          const msg = err instanceof Error ? err.message : "Pipeline failed";
-          setError(msg);
-          setIsRunning(false);
-          setElapsed((Date.now() - meta.startedAt) / 1000);
-          toast.error(`Pipeline failed: ${msg}`, { duration: 7000 });
-        });
+      scheduleFauxStepProgression(controller, meta.startedAt);
+      void runJob(meta, controller);
 
       return true;
     },
-    [isRunning],
+    [isRunning, runJob, scheduleFauxStepProgression],
   );
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
     clearTimers();
-    sessionStorage.removeItem(SESSION_KEY);
+    clearMeta();
     setStepIndex(-1);
     setResult(null);
     setError(null);
     setIsRunning(false);
     setElapsed(0);
     setActiveRun(null);
-  }, []);
+  }, [clearTimers]);
 
   const hasError = error !== null;
   const steps =
