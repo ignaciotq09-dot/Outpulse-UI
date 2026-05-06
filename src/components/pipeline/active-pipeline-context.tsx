@@ -23,6 +23,11 @@ const SESSION_KEY = "outpulse:active-pipeline";
 const POLL_INTERVAL_MS = 2_500;
 const MAX_RUN_MS = 70 * 60 * 1000;
 const POLL_FAIL_LIMIT = 3;
+// The user already saw the ICP via /ingest in the review step before kicking
+// off /pipeline/run, so skip the ingest+icp stages in the visual progression.
+// Backend still re-runs them internally; this is just an honesty fix on the UI.
+const SEARCH_START_STEP = 2; // index into PIPELINE_STEPS — "discover"
+const FAUX_STEP_INTERVAL_MS = 15_000;
 
 interface ActiveRunMeta {
   url: string;
@@ -148,14 +153,15 @@ export function ActivePipelineProvider({ children }: { children: ReactNode }) {
     (controller: AbortController) => {
       // Backend's pipeline status only reports {pending,running,completed,failed}
       // — no per-stage substatus. To give the user feedback during the 60–180s
-      // run, advance the step indicator on a fixed 15s cadence. Real terminal
-      // state (completed/failed) overrides this when polling resolves.
+      // run, advance the step indicator on a fixed cadence starting from
+      // SEARCH_START_STEP (discover). Real terminal state (completed/failed)
+      // overrides this when polling resolves.
       stepTimersRef.current = [];
-      for (let i = 1; i < PIPELINE_STEPS.length; i++) {
+      for (let i = SEARCH_START_STEP + 1; i < PIPELINE_STEPS.length; i++) {
         stepTimersRef.current.push(
           setTimeout(() => {
             if (!controller.signal.aborted) setStepIndex(i);
-          }, i * 15_000),
+          }, (i - SEARCH_START_STEP) * FAUX_STEP_INTERVAL_MS),
         );
       }
     },
@@ -286,7 +292,10 @@ export function ActivePipelineProvider({ children }: { children: ReactNode }) {
     setError(null);
     setResult(null);
     setStepIndex(
-      Math.min(Math.floor(ageMs / 15_000), PIPELINE_STEPS.length - 1),
+      Math.min(
+        SEARCH_START_STEP + Math.floor(ageMs / FAUX_STEP_INTERVAL_MS),
+        PIPELINE_STEPS.length - 1,
+      ),
     );
     setElapsed(ageMs / 1000);
 
@@ -325,7 +334,7 @@ export function ActivePipelineProvider({ children }: { children: ReactNode }) {
       setResult(null);
       setError(null);
       setIsRunning(true);
-      setStepIndex(0);
+      setStepIndex(SEARCH_START_STEP);
       setElapsed(0);
 
       elapsedTimerRef.current = setInterval(() => {

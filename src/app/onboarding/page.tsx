@@ -22,7 +22,7 @@ interface PendingRun {
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { steps, result, error, isRunning, elapsed, start, reset } =
+  const { steps, result, error, isRunning, elapsed, activeRun, start, reset } =
     usePipeline();
 
   const [ingestData, setIngestData] = useState<IngestResponse | null>(null);
@@ -191,7 +191,18 @@ export default function OnboardingPage() {
 
       {phase === "searching" && (
         <div className="animate-fade-in-up">
-          <PipelineProgress steps={steps} elapsed={elapsed} />
+          <PipelineProgress
+            steps={steps}
+            elapsed={elapsed}
+            meta={
+              activeRun
+                ? {
+                    candidateCount: activeRun.candidateCount,
+                    fieldCount: activeRun.fieldCount,
+                  }
+                : undefined
+            }
+          />
         </div>
       )}
 

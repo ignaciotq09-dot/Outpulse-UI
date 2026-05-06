@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Loader2, Circle, AlertCircle } from "lucide-react";
+import { Check, Loader2, Circle, AlertCircle, Users, ListChecks } from "lucide-react";
 import type { PipelineStep } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/format";
@@ -13,23 +13,49 @@ const STATUS_ICON = {
   error: AlertCircle,
 };
 
+export interface PipelineProgressMeta {
+  candidateCount?: number;
+  fieldCount?: number;
+}
+
 export function PipelineProgress({
   steps,
   elapsed,
   tip,
+  meta,
 }: {
   steps: PipelineStep[];
   elapsed: number;
   tip?: string;
+  meta?: PipelineProgressMeta;
 }) {
   const tipText = tip ?? PIPELINE_TIPS[Math.floor(elapsed / 30) % PIPELINE_TIPS.length];
 
   return (
     <div className="mx-auto w-full max-w-md">
-      <div className="mb-6 text-center">
+      <div className="mb-6 text-center space-y-2">
         <p className="text-sm text-muted-foreground tabular-nums">
           Elapsed: {formatElapsed(elapsed)}
         </p>
+        {meta && (meta.candidateCount !== undefined || meta.fieldCount !== undefined) && (
+          <div className="inline-flex items-center gap-3 rounded-full bg-white/[0.04] px-3 py-1 ring-1 ring-white/[0.08]">
+            {meta.candidateCount !== undefined && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+                <Users className="size-3.5" />
+                {meta.candidateCount} {meta.candidateCount === 1 ? "candidate" : "candidates"}
+              </span>
+            )}
+            {meta.candidateCount !== undefined && meta.fieldCount !== undefined && (
+              <span className="text-xs text-muted-foreground/40">·</span>
+            )}
+            {meta.fieldCount !== undefined && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+                <ListChecks className="size-3.5" />
+                {meta.fieldCount} {meta.fieldCount === 1 ? "field" : "fields"}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="space-y-0">

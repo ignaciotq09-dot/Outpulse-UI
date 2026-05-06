@@ -3,12 +3,19 @@
 import { useActivePipeline } from "@/components/pipeline/active-pipeline-context";
 import type { PipelineRunResult, PipelineStep } from "@/lib/types";
 
+export interface ActiveRunSummary {
+  url: string;
+  candidateCount?: number;
+  fieldCount?: number;
+}
+
 export interface UsePipelineReturn {
   steps: PipelineStep[];
   result: PipelineRunResult | null;
   error: string | null;
   isRunning: boolean;
   elapsed: number;
+  activeRun: ActiveRunSummary | null;
   start: (url: string, candidateCount?: number, fieldCount?: number) => void;
   reset: () => void;
 }
@@ -26,6 +33,13 @@ export function usePipeline(): UsePipelineReturn {
     error: ctx.error,
     isRunning: ctx.isRunning,
     elapsed: ctx.elapsed,
+    activeRun: ctx.activeRun
+      ? {
+          url: ctx.activeRun.url,
+          candidateCount: ctx.activeRun.candidateCount,
+          fieldCount: ctx.activeRun.fieldCount,
+        }
+      : null,
     start: ctx.startRun,
     reset: ctx.reset,
   };
