@@ -1,6 +1,7 @@
 // Server-side proxy to the Outpulse backend.
-// Injects the X-API-Key header (never exposed to the browser),
-// allowlists known endpoints, and sanitizes upstream errors.
+// Injects X-API-Key plus optional X-Clerk-* identity headers (server-side
+// env vars only, never exposed to the browser), allowlists known endpoints,
+// and sanitizes upstream errors.
 
 const DEFAULT_BACKEND = "https://outpulse-production.up.railway.app";
 const BACKEND_URL = process.env.OUTPULSE_BACKEND_URL || DEFAULT_BACKEND;
@@ -43,12 +44,29 @@ function buildHeaders(): { headers: HeadersInit } | { error: Response } {
       ),
     };
   }
-  return {
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": apiKey,
-    },
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-API-Key": apiKey,
   };
+
+  // MVP NOTE: The deployed backend currently trusts X-Clerk-* header strings
+  // without verifying a Clerk-signed JWT. We forward a stable service-principal
+  // identity from server-side env vars so the proxy can authenticate on behalf
+  // of all UI users. Replace with real Clerk session forwarding before treating
+  // this as multi-tenant.
+  const clerkUserId = process.env.OUTPULSE_CLERK_USER_ID;
+  if (clerkUserId) {
+    headers["X-Clerk-User-Id"] = clerkUserId;
+  }
+  const clerkUserEmail = process.env.OUTPULSE_CLERK_USER_EMAIL;
+  if (clerkUserEmail) {
+    headers["X-Clerk-User-Email"] = clerkUserEmail;
+  }
+  const clerkUserName = process.env.OUTPULSE_CLERK_USER_NAME;
+  if (clerkUserName) {
+    headers["X-Clerk-User-Name"] = clerkUserName;
+  }
+  return { headers };
 }
 
 // S3: only forward `detail` / `message` from upstream errors. Strip everything
