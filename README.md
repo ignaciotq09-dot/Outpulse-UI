@@ -2,8 +2,8 @@
 
 Premium dark-themed dashboard frontend for the Outpulse B2B lead generation platform. Connects to the Outpulse REST API to ingest company URLs, run the discovery + scoring pipeline, and display ranked leads with full evidence and contact information.
 
-**Live**: https://outpulse-ui.vercel.app
-**Backend**: https://outpulse-production.up.railway.app
+**Live** (Vercel): https://outpulse-ui-y72t.vercel.app
+**Backend** (Railway): https://outpulse-production.up.railway.app
 
 ## Stack
 
@@ -53,7 +53,7 @@ npx next build
 npm run smoke
 
 # Or against a deployed environment (skips the S2 restart test):
-npm run smoke -- https://outpulse-ui.vercel.app
+npm run smoke -- https://outpulse-ui-y72t.vercel.app
 ```
 
 The smoke script covers:
